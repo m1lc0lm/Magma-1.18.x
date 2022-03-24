@@ -295,7 +295,7 @@ def sharedFmlonlyForge = { Project prj ->
                     JAR_SIGNER != null && t.state.failure == null
                 }
                 def jarsigner = JAR_SIGNER == null ? [:] : JAR_SIGNER
-                alias = 'magma'
+                alias = 'forge'
                 storePass = jarsigner.storepass
                 keyPass = jarsigner.keypass
                 keyStore = jarsigner.keystore
@@ -1350,7 +1350,6 @@ project(':forge') {
 
     universalJar {
         from extraTxts
-
         // add crowdin locales
         from { crowdin.output.present && crowdin.output.get().asFile.exists() ? zipTree(crowdin.output) : null}
         dependsOn crowdin
@@ -1369,7 +1368,8 @@ project(':forge') {
 
     task installerJar(type: InstallerJar, dependsOn: [genClientBinPatches, genServerBinPatches, 'signUniversalJar', launcherJson]) {
         packedDependencies = PACKED_DEPS
-        version = MC_VERSION;
+        archiveBaseName = 'magma'
+        version = VERSION;
         from(extraTxts)
         from(rootProject.file('/magma-logo.png')) {
             rename { 'big_logo.png' }
