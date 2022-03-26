@@ -4,6 +4,7 @@ import com.google.common.io.ByteStreams;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -19,12 +20,20 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
+
+import cpw.mods.modlauncher.TransformingClassLoader;
+import net.md_5.specialsource.JarMapping;
+import net.md_5.specialsource.provider.ClassLoaderProvider;
+import net.md_5.specialsource.provider.JointProvider;
+import net.md_5.specialsource.repo.RuntimeRepo;
+import net.minecraft.server.MinecraftServer;
 import org.apache.commons.lang3.Validate;
 import org.bukkit.plugin.InvalidPluginException;
 import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.SimplePluginManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.magmafoundation.magma.remapper.v2.*;
 
 /**
  * A ClassLoader for plugins, to allow shared classes across multiple plugins
@@ -44,6 +53,12 @@ final class PluginClassLoader extends URLClassLoader {
     private IllegalStateException pluginState;
     private final Set<String> seenIllegalAccess = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
+
+    // Magma Remapper v2
+    private JarMapping jarMapping;
+    private MagmaRemapper remapper;
+    private TransformingClassLoader launchClassLoader;
+
     static {
         ClassLoader.registerAsParallelCapable();
     }
@@ -60,6 +75,15 @@ final class PluginClassLoader extends URLClassLoader {
         this.manifest = jar.getManifest();
         this.url = file.toURI().toURL();
         this.libraryLoader = libraryLoader;
+
+        this.launchClassLoader = parent instanceof TransformingClassLoader ? (TransformingClassLoader) parent : (TransformingClassLoader) MinecraftServer.getServer().getClass().getClassLoader();
+        this.jarMapping = MappingLoader.loadMapping();
+        JointProvider provider = new JointProvider();
+        provider.add(new ClassInheritanceProvider());
+        provider.add(new ClassLoaderProvider(this));
+        this.jarMapping.setFallbackInheritanceProvider(provider);
+        this.remapper = new MagmaRemapper(jarMapping);
+
 
         try {
             Class<?> jarClass;
@@ -148,59 +172,94 @@ final class PluginClassLoader extends URLClassLoader {
     }
 
     @Override
-    protected Class<?> findClass(String name) throws ClassNotFoundException {
-        if (name.startsWith("org.bukkit.") || name.startsWith("net.minecraft.")) {
+    protected Class<?> findClass(final String name) throws ClassNotFoundException {
+        if (ReflectionMapping.isNMSPackage(name)) {
+            final String remappedClass = this.jarMapping.classes.get(name.replaceAll("\\.", "\\/"));
+            return launchClassLoader.loadClass(remappedClass);
+        }
+
+        if (name.startsWith("org.bukkit.")) {
             throw new ClassNotFoundException(name);
         }
-        Class<?> result = classes.get(name);
 
-        if (result == null) {
-            String path = name.replace('.', '/').concat(".class");
-            JarEntry entry = jar.getJarEntry(path);
+        Class<?> result = this.classes.get(name);
+        synchronized (name.intern()) {
+            if (result == null) {
+                result = this.remappedFindClass(name);
 
-            if (entry != null) {
-                byte[] classBytes;
-
-                try (InputStream is = jar.getInputStream(entry)) {
-                    classBytes = ByteStreams.toByteArray(is);
-                } catch (IOException ex) {
-                    throw new ClassNotFoundException(name, ex);
+                if(result != null){
+                    loader.setClass(name, result);
                 }
 
-                classBytes = loader.server.getUnsafe().processClass(description, path, classBytes);
-
-                int dot = name.lastIndexOf('.');
-                if (dot != -1) {
-                    String pkgName = name.substring(0, dot);
-                    if (getPackage(pkgName) == null) {
-                        try {
-                            if (manifest != null) {
-                                definePackage(pkgName, manifest, url);
-                            } else {
-                                definePackage(pkgName, null, null, null, null, null, null, null);
-                            }
-                        } catch (IllegalArgumentException ex) {
-                            if (getPackage(pkgName) == null) {
-                                throw new IllegalStateException("Cannot find package " + pkgName);
-                            }
-                        }
+                if (result == null) {
+                    try {
+                        result = super.findClass(name);
+                    } catch (ClassNotFoundException ignored) {
                     }
                 }
 
-                CodeSigner[] signers = entry.getCodeSigners();
-                CodeSource source = new CodeSource(url, signers);
+                if (result == null) {
+                    try {
+                        result = launchClassLoader.loadClass(name);
+                    } catch (ClassNotFoundException ignored) {
+                    }
+                }
 
-                result = defineClass(name, classBytes, 0, classBytes.length, source);
+                if (result == null) {
+                    try {
+                        result = launchClassLoader.getClass().getClassLoader().loadClass(name);
+                    } catch (Throwable throwable) {
+                        throw new ClassNotFoundException(name, throwable);
+                    }
+                }
+
+                if (result == null) throw new ClassNotFoundException(name);
+                this.classes.put(name, result);
             }
-
-            if (result == null) {
-                result = super.findClass(name);
-            }
-
-            loader.setClass(name, result);
-            classes.put(name, result);
         }
+        return result;
+    }
 
+    private Class<?> remappedFindClass(final String name) throws ClassNotFoundException {
+        Class<?> result = null;
+        try {
+            final String path = name.replace('.', '/').concat(".class");
+            final URL url = this.findResource(path);
+            if (url != null) {
+                final InputStream stream = url.openStream();
+                if (stream != null) {
+                    final JarURLConnection jarURLConnection = (JarURLConnection) url.openConnection();
+                    final URL jarURL = jarURLConnection.getJarFileURL();
+                    final Manifest manifest = jarURLConnection.getManifest();
+
+                    byte[] bytecode = this.remapper.remapClassFile(stream, RuntimeRepo.getInstance());
+                    bytecode = ReflectionTransformer.transform(bytecode);
+
+                    int dot = name.lastIndexOf('.');
+                    if (dot != -1) {
+                        String pkgName = name.substring(0, dot);
+                        if (getPackage(pkgName) == null) {
+                            try {
+                                if (manifest != null) {
+                                    definePackage(pkgName, manifest, url);
+                                } else {
+                                    definePackage(pkgName, null, null, null, null, null, null, null);
+                                }
+                            } catch (IllegalArgumentException ignored) {
+                            }
+                        }
+                    }
+
+                    final CodeSource codeSource = new CodeSource(jarURL, new CodeSigner[0]);
+                    result = this.defineClass(name, bytecode, 0, bytecode.length, codeSource);
+                    if (result != null) {
+                        this.resolveClass(result);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            throw new ClassNotFoundException("Failed to remap class " + name, t);
+        }
         return result;
     }
 

@@ -1349,7 +1349,6 @@ project(':forge') {
 
     universalJar {
         from extraTxts
-
         // add crowdin locales
         from { crowdin.output.present && crowdin.output.get().asFile.exists() ? zipTree(crowdin.output) : null}
         dependsOn crowdin
@@ -1369,7 +1368,7 @@ project(':forge') {
     task installerJar(type: InstallerJar, dependsOn: [genClientBinPatches, genServerBinPatches, 'signUniversalJar', launcherJson]) {
         packedDependencies = PACKED_DEPS
         archiveBaseName = 'magma'
-        version = MC_VERSION;
+        version = VERSION;
         from(extraTxts)
         from(rootProject.file('/magma-logo.png')) {
             rename { 'big_logo.png' }
