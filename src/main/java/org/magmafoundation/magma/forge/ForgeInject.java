@@ -15,6 +15,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Villager;
 import org.bukkit.potion.PotionEffectType;
 import org.magmafoundation.magma.Magma;
+import org.magmafoundation.magma.api.ServerAPI;
 import org.magmafoundation.magma.helpers.EnumJ17Helper;
 
 import java.util.ArrayList;
@@ -148,6 +149,7 @@ public class ForgeInject {
                     EntityType bukkitType = EnumJ17Helper.addEnum0(EntityType.class, entityType, new Class[]{String.class, Class.class, Integer.TYPE, Boolean.TYPE}, entityType.toLowerCase(), CraftEntity.class, typeId, false);
                     EntityType.NAME_MAP.put(entityType.toLowerCase(), bukkitType);
                     EntityType.ID_MAP.put((short) typeId, bukkitType);
+                    ServerAPI.entityTypeMap.put(entity.getValue(), entityType);
                     Magma.LOGGER.warn("Injecting Entity into Forge: " +  entityType);
                 } catch (Throwable e) {
                     e.printStackTrace();

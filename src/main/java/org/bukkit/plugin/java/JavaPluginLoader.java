@@ -51,6 +51,7 @@ import org.yaml.snakeyaml.error.YAMLException;
 public final class JavaPluginLoader implements PluginLoader {
     final Server server;
     private final Pattern[] fileFilters = new Pattern[]{Pattern.compile("\\.jar$")};
+    private Map<String, Class<?>> classes = new java.util.concurrent.ConcurrentHashMap<String, Class<?>>(); // Spigot
     private final List<PluginClassLoader> loaders = new CopyOnWriteArrayList<PluginClassLoader>();
 //    private final LibraryLoader libraryLoader;
 
@@ -198,6 +199,25 @@ public final class JavaPluginLoader implements PluginLoader {
         return fileFilters.clone();
     }
 
+    Class<?> getClassByName(String name) {
+        Class<?> cachedClass = classes.get(name);
+
+        if (cachedClass != null) {
+            return cachedClass;
+        } else {
+            for (PluginClassLoader loader : loaders) {
+                try {
+                    cachedClass = loader.findClass(name, false);
+                } catch (ClassNotFoundException cnfe) {}
+                if (cachedClass != null) {
+                    return cachedClass;
+                }
+            }
+        }
+        return null;
+    }
+
+
     @Nullable
     Class<?> getClassByName(final String name, boolean resolve, PluginDescriptionFile description) {
         for (PluginClassLoader loader : loaders) {
@@ -210,16 +230,31 @@ public final class JavaPluginLoader implements PluginLoader {
     }
 
     void setClass(@NotNull final String name, @NotNull final Class<?> clazz) {
-        if (ConfigurationSerializable.class.isAssignableFrom(clazz)) {
-            Class<? extends ConfigurationSerializable> serializable = clazz.asSubclass(ConfigurationSerializable.class);
-            ConfigurationSerialization.registerClass(serializable);
+        if (!classes.containsKey(name)) {
+            classes.put(name, clazz);
+
+            if (ConfigurationSerializable.class.isAssignableFrom(clazz)) {
+                Class<? extends ConfigurationSerializable> serializable = clazz.asSubclass(ConfigurationSerializable.class);
+                ConfigurationSerialization.registerClass(serializable);
+            }
         }
     }
 
     private void removeClass(@NotNull Class<?> clazz) {
-        if (ConfigurationSerializable.class.isAssignableFrom(clazz)) {
-            Class<? extends ConfigurationSerializable> serializable = clazz.asSubclass(ConfigurationSerializable.class);
-            ConfigurationSerialization.unregisterClass(serializable);
+        removeClass(clazz.getName());
+    }
+
+    private void removeClass(@NotNull String name) {
+        Class<?> clazz = classes.remove(name);
+
+        try {
+            if ((clazz != null) && (ConfigurationSerializable.class.isAssignableFrom(clazz))) {
+                Class<? extends ConfigurationSerializable> serializable = clazz.asSubclass(ConfigurationSerializable.class);
+                ConfigurationSerialization.unregisterClass(serializable);
+            }
+        } catch (NullPointerException ex) {
+            // Boggle!
+            // (Native methods throwing NPEs is not fun when you can't stop it before-hand)
         }
     }
 
@@ -371,11 +406,14 @@ public final class JavaPluginLoader implements PluginLoader {
                     removeClass(clazz);
                 }
 
+                // Paper start - close Class Loader on disable
                 try {
                     loader.close();
-                } catch (IOException ex) {
-                    //
+                } catch (IOException e) {
+                    server.getLogger().warning("Error closing the Plugin Class Loader for " + plugin.getDescription().getFullName());
+                    e.printStackTrace();
                 }
+                // Paper end
             }
         }
     }

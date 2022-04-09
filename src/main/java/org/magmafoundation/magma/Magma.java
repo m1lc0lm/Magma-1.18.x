@@ -19,13 +19,9 @@
 package org.magmafoundation.magma;
 
 
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.core.config.Configurator;
-import org.apache.logging.log4j.io.LoggerBufferedInputStream;
-import org.slf4j.LoggerFactory;
+import org.magmafoundation.magma.nms.patcher.PatcherManager;
 
 /**
  * Magma
@@ -41,6 +37,7 @@ public class Magma {
     private static final String NMS_PREFIX = "net/minecraft/server/";
     private static Magma INSTANCE = new Magma();
     public static Logger LOGGER = LogManager.getLogger(Magma.class);
+    private PatcherManager patcherManager;
 
     public Magma() {
         INSTANCE = this;
@@ -60,6 +57,14 @@ public class Magma {
 
     public static String getBukkitVersion() {
         return BUKKIT_VERSION;
+    }
+
+    public PatcherManager getPatcherManager() {
+        return patcherManager;
+    }
+
+    public void setPatcherManager(PatcherManager patcherManager) {
+        this.patcherManager = patcherManager;
     }
 
     public static String getNmsPrefix() {
