@@ -9860,10 +9860,6 @@ public enum Material implements Keyed {
     }
 
     // Magma - start <Used from https://github.com/magmafoundation/Magma-1.16.x/blob/1.16.x/src/main/java/org/bukkit/Material.java>
-    // use a normalize() function to ensure it is accessible after a round-trip
-    public static String normalizeName(String name) {
-        return name.toUpperCase(java.util.Locale.ENGLISH).replaceAll("(:|\\s)", "_").replaceAll("\\W", "");
-    }
 
     public static Material addMaterial(String materialName, int id, boolean isBlock, String modName, NamespacedKey keyForge) {
         if (isBlock) {
