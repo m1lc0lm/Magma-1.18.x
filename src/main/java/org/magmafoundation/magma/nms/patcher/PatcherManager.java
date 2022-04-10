@@ -36,8 +36,8 @@ public class PatcherManager {
 
     public void init() {
         initPatches();
-        Magma.LOGGER.info("%s patches loaded!", patcherList.size());
-        patcherList.forEach(patcher -> Magma.LOGGER.info("%s [%s] loaded", patcher.getName(), patcher.getDescription()));
+        Magma.LOGGER.info(String.format("%s patches loaded!", patcherList.size()));
+        patcherList.forEach(patcher -> Magma.LOGGER.info(String.format("%s [%s] loaded", patcher.getName(), patcher.getDescription())));
     }
 
     private void initPatches() {
